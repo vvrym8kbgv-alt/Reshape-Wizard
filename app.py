@@ -24,6 +24,7 @@ LARGE_ROW_THRESHOLD = 200_000
 VERY_WIDE_THRESHOLD = 1000
 HUGE_ROW_WARNING = 5_000_000
 HELP_IMAGE_WIDTH = 1920
+HELP_DIALOG_MAX_WIDTH = 1400
 ASSET_ROOT = Path(__file__).resolve().parent
 
 HELP_CONTENT = {
@@ -819,6 +820,19 @@ def code_snippet_for_last_step() -> str:
 def main() -> None:
     st.set_page_config(page_title="Reshape Wizard", layout="wide")
     init_state()
+    st.markdown(
+        f"""
+        <style>
+        div[role="dialog"] > div {{
+            width: min({HELP_DIALOG_MAX_WIDTH}px, 95vw) !important;
+        }}
+        div[role="dialog"] img {{
+            max-width: 100% !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     title_col, help_col = st.columns([6, 1])
     with title_col:
