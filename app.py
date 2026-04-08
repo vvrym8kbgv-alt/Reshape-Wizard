@@ -10,6 +10,7 @@ import json
 import re
 from datetime import datetime
 from io import BytesIO, StringIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -22,6 +23,86 @@ PREVIEW_DEFAULT = 100
 LARGE_ROW_THRESHOLD = 200_000
 VERY_WIDE_THRESHOLD = 500
 HUGE_ROW_WARNING = 5_000_000
+HELP_IMAGE_WIDTH = 760
+ASSET_ROOT = Path(__file__).resolve().parent
+
+HELP_CONTENT = {
+    "main": [
+        {
+            "title": "Load data",
+            "text": "Use Upload CSV/XLSX to open a file, or paste a table copied from Excel. Choose the correct sheet and header row before loading. If your file has awkward headers, the app can help fix them.",
+            "image": "assets/main_1_load.png",
+        },
+        {
+            "title": "Preview your table",
+            "text": "Once loaded, your current data appears in the app preview. This is the working table that all reshaping steps use. Always check the columns and sample rows before applying transformations.",
+            "image": "assets/main_2_preview.png",
+        },
+        {
+            "title": "History and export",
+            "text": "Use Undo and Reset if you want to go back. Export lets you save the current result as CSV or XLSX. You can also copy tables directly to clipboard instead of downloading.",
+            "image": "assets/main_3_history.png",
+        },
+    ],
+    "preview": [
+        {
+            "title": "Before and after preview",
+            "text": "Each operation shows a Before table and an After preview. The preview lets you check the result safely before committing changes to your working dataset.",
+            "image": "assets/preview_1_before_after.png",
+        },
+        {
+            "title": "Copy table",
+            "text": "Use Copy table to clipboard when you want to paste the result directly into Excel or another tool. If a preview is available, the preview result is copied; otherwise the current data is copied.",
+            "image": "assets/preview_2_copy.png",
+        },
+    ],
+    "preprocess": [
+        {
+            "title": "Fill-down",
+            "text": "Use Fill-down when repeated values appear only once and the cells below are blank. Select the columns to fill and preview the result before applying.",
+            "image": "assets/preprocess_1_filldown.png",
+        },
+        {
+            "title": "Unmerge merged cells",
+            "text": "If your Excel sheet contains merged cells, use this option to fill every cell in the merged range with the original top-left value. This helps turn report-style sheets into usable tables.",
+            "image": "assets/preprocess_2_unmerge.png",
+        },
+        {
+            "title": "Rename columns",
+            "text": "Use Rename columns to clean unclear names before reshaping. This is especially useful if imported headers are blank, duplicated, or too messy to work with comfortably.",
+            "image": "assets/preprocess_3_rename.png",
+        },
+    ],
+    "longer": [
+        {
+            "title": "Select ID and value columns",
+            "text": "Choose the columns that should stay fixed as identifiers, then choose the columns that should be stacked into rows. This is useful when month or question columns need to become a single variable column.",
+            "image": "assets/longer_1_select_cols.png",
+        },
+        {
+            "title": "Check the long result",
+            "text": "Preview the output to confirm that your selected columns were stacked correctly. If the result looks right, click Apply to replace the current table.",
+            "image": "assets/longer_2_result.png",
+        },
+    ],
+    "wider": [
+        {
+            "title": "Basic pivot settings",
+            "text": "Choose the row identifier columns, then select which field should create new columns and which field contains the values. This is the standard wide transformation.",
+            "image": "assets/wider_1_basic.png",
+        },
+        {
+            "title": "Duplicates and aggregation",
+            "text": "If the same row-column combination appears more than once, you must choose an aggregation such as first, mean, sum, or count. The preview will warn you when duplicates are detected.",
+            "image": "assets/wider_2_duplicates.png",
+        },
+        {
+            "title": "Combine parts with a separator",
+            "text": "You can build wider column names from several fields, for example ScoreType and Year, using a separator such as underscore. This creates names like Math_2023 or English_2023.",
+            "image": "assets/wider_3_combined.png",
+        },
+    ],
+}
 
 
 def init_state() -> None:
@@ -39,6 +120,80 @@ def init_state() -> None:
     ss.setdefault("preview_params_hash", None)
     ss.setdefault("preview_limit", PREVIEW_DEFAULT)
     ss.setdefault("upload_cache", {})  # {"bytes":..., "name":..., "ext":..., "sheets": [...]}
+    ss.setdefault("help_open", False)
+    ss.setdefault("help_topic", "main")
+    ss.setdefault("help_step", 0)
+
+
+def open_help(topic: str) -> None:
+    st.session_state.help_open = True
+    st.session_state.help_topic = topic if topic in HELP_CONTENT else "main"
+    st.session_state.help_step = 0
+    st.rerun()
+
+
+def close_help() -> None:
+    st.session_state.help_open = False
+    st.session_state.help_step = 0
+    st.rerun()
+
+
+def _render_help_dialog_body() -> None:
+    topic = st.session_state.help_topic if st.session_state.help_topic in HELP_CONTENT else "main"
+    steps = HELP_CONTENT[topic]
+    total_steps = len(steps)
+    step_idx = min(max(int(st.session_state.help_step), 0), total_steps - 1)
+    st.session_state.help_step = step_idx
+    step = steps[step_idx]
+
+    st.caption(f"Step {step_idx + 1} of {total_steps}")
+    st.progress((step_idx + 1) / total_steps)
+    st.subheader(step["title"])
+    st.write(step["text"])
+
+    image_path = ASSET_ROOT / step["image"]
+    image_slot = st.container()
+    with image_slot:
+        if image_path.exists():
+            st.image(str(image_path), width=HELP_IMAGE_WIDTH)
+        else:
+            st.caption("Screenshot missing")
+
+    back_col, next_col, cancel_col = st.columns([1, 1, 1])
+    with back_col:
+        back_disabled = step_idx == 0
+        if st.button("Back", disabled=back_disabled, use_container_width=True, key=f"help_back_{topic}_{step_idx}"):
+            st.session_state.help_step = max(step_idx - 1, 0)
+            st.rerun()
+    with next_col:
+        is_last = step_idx == total_steps - 1
+        next_label = "Finish" if is_last else "Next"
+        if st.button(next_label, use_container_width=True, key=f"help_next_{topic}_{step_idx}"):
+            if is_last:
+                close_help()
+                return
+            st.session_state.help_step = min(step_idx + 1, total_steps - 1)
+            st.rerun()
+    with cancel_col:
+        if st.button("Cancel", use_container_width=True, key=f"help_cancel_{topic}_{step_idx}"):
+            close_help()
+
+
+def render_help_dialog() -> None:
+    if not st.session_state.help_open:
+        return
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Instructions")
+        def _help_modal() -> None:
+            _render_help_dialog_body()
+
+        _help_modal()
+        return
+
+    with st.container(border=True):
+        st.markdown("### Instructions")
+        _render_help_dialog_body()
 
 
 def normalise_duplicate_columns(cols) -> List[str]:
@@ -665,8 +820,15 @@ def main() -> None:
     st.set_page_config(page_title="Reshape Wizard", layout="wide")
     init_state()
 
-    st.title("Reshape Wizard (MVP)")
+    title_col, help_col = st.columns([6, 1])
+    with title_col:
+        st.title("Reshape Wizard (MVP)")
+    with help_col:
+        st.write("")
+        if st.button("Instructions", key="help_main", use_container_width=True):
+            open_help("main")
     st.caption("Offline-friendly reshaping tool with deterministic transformations and preview-first workflow.")
+    render_help_dialog()
 
     # --- Sidebar: Import ---
     st.sidebar.header("Import")
@@ -814,13 +976,24 @@ def main() -> None:
     tabs = st.tabs(["Preview", "Preprocess", "Make longer", "Make wider", "Split combined", "Transpose", "Reproducible code"])
 
     with tabs[0]:
+        preview_head_col, preview_help_col = st.columns([6, 1])
+        with preview_head_col:
+            st.subheader("Preview")
+        with preview_help_col:
+            if st.button("Instructions", key="help_preview", use_container_width=True):
+                open_help("preview")
         show_before_after(current_df, current_df, {"after_shape": current_df.shape if current_df is not None else (0, 0)}, None, "Current data")
         st.markdown("###### Copy table")
         copy_to_clipboard_button(st.session_state.preview_df, current_df, "Copy table to clipboard", "preview_tab")
 
     # --- Preprocess tab (fill-down + unmerge option) ---
     with tabs[1]:
-        st.subheader("Preprocess")
+        preprocess_head_col, preprocess_help_col = st.columns([6, 1])
+        with preprocess_head_col:
+            st.subheader("Preprocess")
+        with preprocess_help_col:
+            if st.button("Instructions", key="help_preprocess", use_container_width=True):
+                open_help("preprocess")
         if current_df is None:
             st.info("Load data first.")
         else:
@@ -941,7 +1114,12 @@ def main() -> None:
 
     # --- Make longer ---
     with tabs[2]:
-        st.subheader("Make longer (melt)")
+        longer_head_col, longer_help_col = st.columns([6, 1])
+        with longer_head_col:
+            st.subheader("Make longer (melt)")
+        with longer_help_col:
+            if st.button("Instructions", key="help_longer", use_container_width=True):
+                open_help("longer")
         df = st.session_state.current_df
         if df is None:
             st.info("Load data first.")
@@ -992,7 +1170,12 @@ def main() -> None:
 
     # --- Make wider ---
     with tabs[3]:
-        st.subheader("Make wider (pivot)")
+        wider_head_col, wider_help_col = st.columns([6, 1])
+        with wider_head_col:
+            st.subheader("Make wider (pivot)")
+        with wider_help_col:
+            if st.button("Instructions", key="help_wider", use_container_width=True):
+                open_help("wider")
         df = st.session_state.current_df
         if df is None:
             st.info("Load data first.")
