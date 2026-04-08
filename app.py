@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook
+from PIL import Image
 import streamlit.components.v1 as components
 
 
@@ -23,8 +24,8 @@ PREVIEW_DEFAULT = 100
 LARGE_ROW_THRESHOLD = 200_000
 VERY_WIDE_THRESHOLD = 500
 HUGE_ROW_WARNING = 5_000_000
-HELP_IMAGE_WIDTH = 720
-HELP_DIALOG_MAX_WIDTH = 980
+HELP_IMAGE_WIDTH = 480
+HELP_TALL_IMAGE_WIDTH = 340
 ASSET_ROOT = Path(__file__).resolve().parent
 
 HELP_CONTENT = {
@@ -156,7 +157,12 @@ def _render_help_dialog_body() -> None:
     image_slot = st.container()
     with image_slot:
         if image_path.exists():
-            st.image(str(image_path), width=HELP_IMAGE_WIDTH)
+            with Image.open(image_path) as img:
+                width_px, height_px = img.size
+            if height_px > width_px * 1.15:
+                st.image(str(image_path), width=HELP_TALL_IMAGE_WIDTH)
+            else:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.caption("Screenshot missing")
 
@@ -185,7 +191,7 @@ def render_help_dialog() -> None:
         return
 
     if hasattr(st, "dialog"):
-        @st.dialog("Instructions")
+        @st.dialog("Instructions", width="large")
         def _help_modal() -> None:
             _render_help_dialog_body()
 
@@ -821,14 +827,17 @@ def main() -> None:
     st.set_page_config(page_title="Reshape Wizard", layout="wide")
     init_state()
     st.markdown(
-        f"""
+        """
         <style>
-        div[role="dialog"] > div {{
-            width: min({HELP_DIALOG_MAX_WIDTH}px, 95vw) !important;
-        }}
-        div[role="dialog"] img {{
-            max-width: 100% !important;
-        }}
+        div[data-testid="stModal"] div[role="dialog"] {
+            width: 90vw !important;
+            max-width: 1400px !important;
+        }
+
+        div[data-testid="stModal"] img {
+            width: 100% !important;
+            height: auto !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
